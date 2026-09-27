@@ -1,0 +1,168 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>地図ドローン</title>
+<link href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" rel="stylesheet">
+<script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+<style>
+  html, body { margin:0; height:100%; overflow:hidden; background:#0b1016; font-family: system-ui, -apple-system, sans-serif; color:#e8eef5; -webkit-user-select:none; user-select:none; }
+  #map { position:absolute; inset:0; }
+  .hud { position:absolute; top:calc(env(safe-area-inset-top,0px) + 10px); left:10px; right:10px; display:flex; justify-content:space-between; gap:8px; pointer-events:none; }
+  .panel { background:rgba(10,16,24,.62); border:1px solid rgba(255,255,255,.12); border-radius:10px; padding:8px 10px; font-size:12px; line-height:1.5; font-variant-numeric:tabular-nums; backdrop-filter:blur(6px); -webkit-backdrop-filter:blur(6px); }
+  .panel b { color:#7fd3ff; font-weight:600; }
+  .btns { display:flex; flex-direction:column; gap:6px; pointer-events:auto; align-items:flex-end; }
+  button, select { font:inherit; font-size:13px; color:#e8eef5; background:rgba(10,16,24,.7); border:1px solid rgba(255,255,255,.2); border-radius:8px; padding:7px 10px; }
+  button:active { background:rgba(127,211,255,.3); }
+  .stick { position:absolute; bottom:calc(env(safe-area-inset-bottom,0px) + 24px); width:140px; height:140px; border-radius:50%; background:rgba(10,16,24,.35); border:2px solid rgba(255,255,255,.25); touch-action:none; }
+  .stick.left { left:20px; } .stick.right { right:20px; }
+  .knob { position:absolute; left:50%; top:50%; width:56px; height:56px; margin:-28px 0 0 -28px; border-radius:50%; background:rgba(127,211,255,.55); border:2px solid rgba(255,255,255,.7); pointer-events:none; }
+  .label { position:absolute; bottom:-20px; width:100%; text-align:center; font-size:11px; color:rgba(255,255,255,.75); text-shadow:0 1px 2px #000; }
+  .speed { position:absolute; bottom:calc(env(safe-area-inset-bottom,0px) + 190px); left:50%; transform:translateX(-50%); display:flex; gap:6px; }
+</style>
+</head>
+<body>
+<div id="map"></div>
+
+<div class="hud">
+  <div class="panel" id="info">方位 <b id="hdg">0°</b><br>高度 <b id="alt">-</b><br><span id="pos">-</span></div>
+  <div class="btns">
+    <select id="place">
+      <option value="">行き先</option>
+      <option value="139.7454,35.6586,16">東京タワー</option>
+      <option value="138.7274,35.3606,13">富士山</option>
+      <option value="135.7727,34.9949,15">清水寺</option>
+      <option value="135.5023,34.6687,15">道頓堀</option>
+      <option value="-112.1129,36.1069,13">グランドキャニオン</option>
+      <option value="-74.0445,40.6892,16">自由の女神</option>
+      <option value="86.925,27.9881,12">エベレスト</option>
+    </select>
+    <button id="styleBtn">通常地図</button>
+    <button id="tiltBtn">真上視点</button>
+  </div>
+</div>
+
+<div class="speed">
+  <button data-s="0.5">遅</button><button data-s="1">普</button><button data-s="2.5">速</button>
+</div>
+
+<div class="stick left" id="stickL"><div class="knob"></div><div class="label">前後・左右移動</div></div>
+<div class="stick right" id="stickR"><div class="knob"></div><div class="label">上昇下降・旋回</div></div>
+
+<script>
+const map = new maplibregl.Map({
+  container: 'map',
+  interactive: false,
+  maxPitch: 85,
+  center: [139.7454, 35.6586], zoom: 16, pitch: 70, bearing: 0,
+  attributionControl: { compact: true },
+  style: {
+    version: 8,
+    sources: {
+      sat: { type:'raster', tileSize:256, maxzoom:19,
+        tiles:['https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'],
+        attribution:'Imagery © Esri' },
+      osm: { type:'raster', tileSize:256, maxzoom:19,
+        tiles:['https://tile.openstreetmap.org/{z}/{x}/{y}.png'],
+        attribution:'© OpenStreetMap contributors' },
+      dem: { type:'raster-dem', encoding:'terrarium', tileSize:256, maxzoom:15,
+        tiles:['https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png'],
+        attribution:'Terrain: Mapzen/AWS' }
+    },
+    layers: [
+      { id:'sat', type:'raster', source:'sat' },
+      { id:'osm', type:'raster', source:'osm', layout:{ visibility:'none' } }
+    ],
+    terrain: { source:'dem', exaggeration:1.3 },
+    sky: { 'sky-color':'#6fa8dc', 'horizon-color':'#dbe8f5', 'sky-horizon-blend':0.6, 'fog-color':'#dbe8f5', 'horizon-fog-blend':0.5 }
+  }
+});
+
+// state
+let lng = 139.7454, lat = 35.6586, zoom = 16, bearing = 0, pitch = 70, speedMul = 1;
+const input = { L:{x:0,y:0}, R:{x:0,y:0} };
+const keys = {};
+
+function setupStick(el, target) {
+  const knob = el.querySelector('.knob');
+  let id = null;
+  const R = 50;
+  function update(e) {
+    const r = el.getBoundingClientRect();
+    let dx = e.clientX - (r.left + r.width/2), dy = e.clientY - (r.top + r.height/2);
+    const d = Math.hypot(dx, dy);
+    if (d > R) { dx = dx / d * R; dy = dy / d * R; }
+    knob.style.transform = `translate(${dx}px,${dy}px)`;
+    target.x = dx / R; target.y = -dy / R;
+  }
+  el.addEventListener('pointerdown', e => { id = e.pointerId; el.setPointerCapture(id); update(e); });
+  el.addEventListener('pointermove', e => { if (e.pointerId === id) update(e); });
+  const end = e => { if (e.pointerId !== id) return; id = null; knob.style.transform = ''; target.x = 0; target.y = 0; };
+  el.addEventListener('pointerup', end); el.addEventListener('pointercancel', end);
+}
+setupStick(document.getElementById('stickL'), input.L);
+setupStick(document.getElementById('stickR'), input.R);
+
+addEventListener('keydown', e => keys[e.key.toLowerCase()] = true);
+addEventListener('keyup', e => keys[e.key.toLowerCase()] = false);
+
+document.querySelectorAll('.speed button').forEach(b => b.onclick = () => speedMul = +b.dataset.s);
+
+document.getElementById('place').onchange = e => {
+  if (!e.target.value) return;
+  const [a, b, z] = e.target.value.split(',').map(Number);
+  lng = a; lat = b; zoom = z; e.target.value = '';
+};
+
+let sat = true;
+document.getElementById('styleBtn').onclick = e => {
+  sat = !sat;
+  map.setLayoutProperty('sat', 'visibility', sat ? 'visible' : 'none');
+  map.setLayoutProperty('osm', 'visibility', sat ? 'none' : 'visible');
+  e.target.textContent = sat ? '通常地図' : '衛星写真';
+};
+
+let topView = false;
+document.getElementById('tiltBtn').onclick = e => {
+  topView = !topView; pitch = topView ? 0 : 70;
+  e.target.textContent = topView ? 'ドローン視点' : '真上視点';
+};
+
+const hdg = document.getElementById('hdg'), altEl = document.getElementById('alt'), pos = document.getElementById('pos');
+let last = performance.now();
+
+function loop(now) {
+  const dt = Math.min((now - last) / 1000, 0.05); last = now;
+
+  // keyboard (PC): WASD移動 / 矢印で旋回・上下
+  let fx = input.L.x, fy = input.L.y, rx = input.R.x, ry = input.R.y;
+  if (keys['w']) fy = 1; if (keys['s']) fy = -1; if (keys['a']) fx = -1; if (keys['d']) fx = 1;
+  if (keys['arrowleft']) rx = -1; if (keys['arrowright']) rx = 1; if (keys['arrowup']) ry = 1; if (keys['arrowdown']) ry = -1;
+
+  // speed scales with altitude (m/s)
+  const mps = 60 * Math.pow(2, 16 - zoom) * speedMul;
+  const b = bearing * Math.PI / 180;
+  const east = (Math.sin(b) * fy + Math.cos(b) * fx) * mps * dt;
+  const north = (Math.cos(b) * fy - Math.sin(b) * fx) * mps * dt;
+  lat += north / 111320;
+  lng += east / (111320 * Math.cos(lat * Math.PI / 180));
+  lat = Math.max(-84, Math.min(84, lat));
+  if (lng > 180) lng -= 360; if (lng < -180) lng += 360;
+
+  bearing = (bearing + rx * 70 * dt + 360) % 360;
+  zoom = Math.max(3, Math.min(19, zoom - ry * 0.9 * dt));
+
+  map.jumpTo({ center:[lng, lat], zoom, bearing, pitch });
+
+  hdg.textContent = Math.round(bearing) + '°';
+  const altM = 78271.5 * Math.cos(lat * Math.PI / 180) / Math.pow(2, zoom) * innerHeight / 2 / Math.tan(0.6435) ;
+  altEl.textContent = altM > 1000 ? (altM / 1000).toFixed(1) + ' km' : Math.round(altM) + ' m';
+  pos.textContent = lat.toFixed(4) + ', ' + lng.toFixed(4);
+
+  requestAnimationFrame(loop);
+}
+map.on('load', () => requestAnimationFrame(loop));
+</script>
+</body>
+</html>
