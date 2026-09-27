@@ -3,166 +3,566 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
-<title>地図ドローン</title>
-<link href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" rel="stylesheet">
-<script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>FPVドローン</title>
+<link href="https://unpkg.com/maplibre-gl@5/dist/maplibre-gl.css" rel="stylesheet">
+<script src="https://unpkg.com/maplibre-gl@5/dist/maplibre-gl.js"></script>
 <style>
-  html, body { margin:0; height:100%; overflow:hidden; background:#0b1016; font-family: system-ui, -apple-system, sans-serif; color:#e8eef5; -webkit-user-select:none; user-select:none; }
+  :root { --osd:#f4f7fa; --accent:#ffb020; --warn:#ff4d4d; --ok:#5dff9a; --panel:rgba(8,12,18,.86); --line:rgba(255,255,255,.14); }
+  html, body { margin:0; height:100%; overflow:hidden; background:#05080c; color:var(--osd); font-family: system-ui, -apple-system, sans-serif; -webkit-user-select:none; user-select:none; touch-action:none; -webkit-touch-callout:none; }
   #map { position:absolute; inset:0; }
-  .hud { position:absolute; top:calc(env(safe-area-inset-top,0px) + 10px); left:10px; right:10px; display:flex; justify-content:space-between; gap:8px; pointer-events:none; }
-  .panel { background:rgba(10,16,24,.62); border:1px solid rgba(255,255,255,.12); border-radius:10px; padding:8px 10px; font-size:12px; line-height:1.5; font-variant-numeric:tabular-nums; backdrop-filter:blur(6px); -webkit-backdrop-filter:blur(6px); }
-  .panel b { color:#7fd3ff; font-weight:600; }
-  .btns { display:flex; flex-direction:column; gap:6px; pointer-events:auto; align-items:flex-end; }
-  button, select { font:inherit; font-size:13px; color:#e8eef5; background:rgba(10,16,24,.7); border:1px solid rgba(255,255,255,.2); border-radius:8px; padding:7px 10px; }
-  button:active { background:rgba(127,211,255,.3); }
-  .stick { position:absolute; bottom:calc(env(safe-area-inset-bottom,0px) + 24px); width:140px; height:140px; border-radius:50%; background:rgba(10,16,24,.35); border:2px solid rgba(255,255,255,.25); touch-action:none; }
-  .stick.left { left:20px; } .stick.right { right:20px; }
-  .knob { position:absolute; left:50%; top:50%; width:56px; height:56px; margin:-28px 0 0 -28px; border-radius:50%; background:rgba(127,211,255,.55); border:2px solid rgba(255,255,255,.7); pointer-events:none; }
-  .label { position:absolute; bottom:-20px; width:100%; text-align:center; font-size:11px; color:rgba(255,255,255,.75); text-shadow:0 1px 2px #000; }
-  .speed { position:absolute; bottom:calc(env(safe-area-inset-bottom,0px) + 190px); left:50%; transform:translateX(-50%); display:flex; gap:6px; }
+  .maplibregl-ctrl-attrib { font-size:9px; opacity:.6; }
+  .mono { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-variant-numeric: tabular-nums; }
+  .osd { position:absolute; pointer-events:none; font-family: ui-monospace, "SF Mono", Menlo, monospace; font-weight:700; font-size:13px; letter-spacing:.02em; text-shadow: 0 0 2px #000, 0 0 2px #000, 1px 1px 0 #000; font-variant-numeric: tabular-nums; }
+  #osdTL { top:calc(env(safe-area-inset-top,0px) + 8px); left:calc(env(safe-area-inset-left,0px) + 10px); line-height:1.45; }
+  #osdTR { top:calc(env(safe-area-inset-top,0px) + 8px); right:calc(env(safe-area-inset-right,0px) + 10px); text-align:right; line-height:1.45; }
+  #osdC { left:50%; top:50%; transform:translate(-50%,-50%); text-align:center; }
+  #cross { width:44px; height:20px; position:relative; margin:0 auto; }
+  #cross::before, #cross::after { content:""; position:absolute; background:var(--osd); box-shadow:0 0 2px #000; }
+  #cross::before { left:0; right:0; top:9px; height:2px; }
+  #cross::after { left:21px; top:4px; width:2px; height:12px; }
+  #msg { margin-top:18px; font-size:15px; }
+  #race { top:calc(env(safe-area-inset-top,0px) + 8px); left:50%; transform:translateX(-50%); text-align:center; font-size:14px; line-height:1.4; }
+  .warn { color:var(--warn); } .acc { color:var(--accent); } .ok { color:var(--ok); }
+
+  .btnbar { position:absolute; display:flex; gap:6px; pointer-events:auto; }
+  #barTop { top:calc(env(safe-area-inset-top,0px) + 86px); right:calc(env(safe-area-inset-right,0px) + 10px); flex-direction:column; align-items:flex-end; }
+  button, select { font:inherit; font-size:13px; font-weight:600; color:var(--osd); background:rgba(8,12,18,.62); border:1px solid rgba(255,255,255,.25); border-radius:8px; padding:8px 11px; }
+  button:active { background:rgba(255,176,32,.35); }
+  button:focus-visible, select:focus-visible, input:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
+  #armBtn { min-width:78px; letter-spacing:.08em; }
+  #armBtn.armed { background:rgba(255,77,77,.55); border-color:#ff8080; }
+  #gimbal { position:absolute; right:calc(env(safe-area-inset-right,0px) + 10px); top:50%; transform:translateY(-50%); flex-direction:column; }
+
+  .stick { position:absolute; bottom:calc(env(safe-area-inset-bottom,0px) + 22px); width:136px; height:136px; border-radius:22px; background:rgba(8,12,18,.28); border:2px solid rgba(255,255,255,.22); touch-action:none; }
+  .stick.l { left:calc(env(safe-area-inset-left,0px) + 18px); } .stick.r { right:calc(env(safe-area-inset-right,0px) + 18px); }
+  .stick::before, .stick::after { content:""; position:absolute; background:rgba(255,255,255,.14); }
+  .stick::before { left:50%; top:10px; bottom:10px; width:1px; } .stick::after { top:50%; left:10px; right:10px; height:1px; }
+  .knob { position:absolute; left:50%; top:50%; width:50px; height:50px; margin:-25px 0 0 -25px; border-radius:50%; background:rgba(230,236,242,.8); border:2px solid #fff; box-shadow:0 2px 8px rgba(0,0,0,.5); pointer-events:none; z-index:1; }
+  .slabel { position:absolute; top:-18px; width:100%; text-align:center; font-size:10px; font-weight:600; color:rgba(255,255,255,.8); text-shadow:0 1px 2px #000; }
+
+  #sheet { position:absolute; inset:0; background:rgba(0,0,0,.45); display:flex; align-items:flex-end; justify-content:center; z-index:10; }
+  #sheet .inner { width:100%; max-width:560px; max-height:86%; overflow-y:auto; background:var(--panel); border:1px solid var(--line); border-radius:16px 16px 0 0; padding:14px 16px calc(env(safe-area-inset-bottom,0px) + 16px); box-sizing:border-box; backdrop-filter:blur(10px); -webkit-backdrop-filter:blur(10px); user-select:auto; -webkit-user-select:auto; touch-action:pan-y; }
+  #sheet h2 { font-size:16px; margin:2px 0 10px; display:flex; justify-content:space-between; align-items:center; }
+  #sheet h3 { font-size:11px; letter-spacing:.12em; color:var(--accent); margin:16px 0 6px; font-weight:700; }
+  .row { display:grid; grid-template-columns: 7.5em 1fr 3.8em; align-items:center; gap:8px; padding:5px 0; font-size:13px; }
+  .row .v { text-align:right; font-family: ui-monospace, Menlo, monospace; font-variant-numeric: tabular-nums; color:#cfe3f5; }
+  .row select { width:100%; }
+  input[type=range] { width:100%; accent-color: var(--accent); }
+  .note { font-size:11px; color:rgba(255,255,255,.6); line-height:1.5; margin:4px 0 0; }
+  .crafts { display:grid; grid-template-columns: repeat(auto-fit, minmax(150px,1fr)); gap:8px; }
+  .craft { text-align:left; padding:10px; border-radius:10px; line-height:1.35; }
+  .craft small { display:block; font-weight:400; font-size:11px; color:rgba(255,255,255,.65); margin-top:3px; }
+  .craft.sel { border-color:var(--accent); background:rgba(255,176,32,.18); }
+  #err { position:absolute; left:10px; right:10px; bottom:180px; color:#ff9a9a; font-size:12px; white-space:pre-wrap; pointer-events:none; text-shadow:0 1px 2px #000; }
 </style>
 </head>
 <body>
 <div id="map"></div>
 
-<div class="hud">
-  <div class="panel" id="info">方位 <b id="hdg">0°</b><br>高度 <b id="alt">-</b><br><span id="pos">-</span></div>
-  <div class="btns">
-    <select id="place">
-      <option value="">行き先</option>
-      <option value="139.7454,35.6586,16">東京タワー</option>
-      <option value="138.7274,35.3606,13">富士山</option>
-      <option value="135.7727,34.9949,15">清水寺</option>
-      <option value="135.5023,34.6687,15">道頓堀</option>
-      <option value="-112.1129,36.1069,13">グランドキャニオン</option>
-      <option value="-74.0445,40.6892,16">自由の女神</option>
-      <option value="86.925,27.9881,12">エベレスト</option>
-    </select>
-    <button id="styleBtn">通常地図</button>
-    <button id="tiltBtn">真上視点</button>
+<div class="osd" id="osdTL"></div>
+<div class="osd" id="osdTR"></div>
+<div class="osd" id="race" hidden></div>
+<div class="osd" id="osdC"><div id="cross"></div><div id="msg"></div></div>
+
+<div class="btnbar" id="barTop">
+  <button id="armBtn">ARM</button>
+  <button id="raceBtn">レース</button>
+  <button id="resetBtn">リセット</button>
+  <button id="setBtn">設定</button>
+</div>
+<div class="btnbar" id="gimbal" hidden>
+  <button id="gUp">▲</button><button id="gDn">▼</button>
+</div>
+
+<div class="stick l" id="stickL"><div class="slabel" id="lblL"></div><div class="knob"></div></div>
+<div class="stick r" id="stickR"><div class="slabel" id="lblR"></div><div class="knob"></div></div>
+
+<div id="sheet" hidden>
+  <div class="inner">
+    <h2>設定 <button id="closeSet">閉じる</button></h2>
+
+    <h3>機体</h3>
+    <div class="crafts" id="crafts"></div>
+
+    <h3>飛行モード</h3>
+    <div class="row"><span>モード</span><select id="mode"></select><span></span></div>
+    <p class="note" id="modeNote"></p>
+
+    <div id="fpvSet">
+      <h3>レート（ロール・ピッチ）</h3>
+      <div class="row"><span>RC Rate</span><input type="range" id="rcRate" min="0.5" max="2" step="0.01"><span class="v" id="rcRateV"></span></div>
+      <div class="row"><span>Super Rate</span><input type="range" id="superRate" min="0" max="0.85" step="0.01"><span class="v" id="superRateV"></span></div>
+      <div class="row"><span>RC Expo</span><input type="range" id="expo" min="0" max="0.8" step="0.01"><span class="v" id="expoV"></span></div>
+      <h3>レート（ヨー）</h3>
+      <div class="row"><span>RC Rate</span><input type="range" id="yRcRate" min="0.5" max="2" step="0.01"><span class="v" id="yRcRateV"></span></div>
+      <div class="row"><span>Super Rate</span><input type="range" id="ySuperRate" min="0" max="0.85" step="0.01"><span class="v" id="ySuperRateV"></span></div>
+      <p class="note" id="maxRate"></p>
+      <h3>スロットル</h3>
+      <div class="row"><span>Throttle Mid</span><input type="range" id="thrMid" min="0.2" max="0.8" step="0.01"><span class="v" id="thrMidV"></span></div>
+      <div class="row"><span>Throttle Expo</span><input type="range" id="thrExpo" min="0" max="1" step="0.01"><span class="v" id="thrExpoV"></span></div>
+      <h3>カメラ・アングル</h3>
+      <div class="row"><span>カメラ上向き角</span><input type="range" id="uptilt" min="0" max="50" step="1"><span class="v" id="uptiltV"></span></div>
+      <div class="row"><span>アングル上限</span><input type="range" id="angleLimit" min="20" max="80" step="1"><span class="v" id="angleLimitV"></span></div>
+    </div>
+
+    <div id="camSet">
+      <h3>空撮機</h3>
+      <div class="row"><span>速度モード</span><select id="speedMode"><option value="C">C（シネ）</option><option value="N">N（ノーマル）</option><option value="S">S（スポーツ）</option></select><span></span></div>
+    </div>
+
+    <h3>環境</h3>
+    <div class="row"><span>風速</span><input type="range" id="wind" min="0" max="12" step="0.5"><span class="v" id="windV"></span></div>
+    <div class="row"><span>画角</span><input type="range" id="fov" min="40" max="110" step="1"><span class="v" id="fovV"></span></div>
+    <div class="row"><span>地図</span><select id="mapType"><option value="sat">衛星写真</option><option value="osm">通常地図</option></select><span></span></div>
+    <div class="row"><span>3D建物</span><select id="bld"><option value="1">表示</option><option value="0">非表示</option></select><span></span></div>
+
+    <h3>送信機</h3>
+    <div class="row"><span>スティックモード</span><select id="stickMode"><option value="2">モード2（左：スロットル）</option><option value="1">モード1（右：スロットル）</option></select><span></span></div>
+    <div class="row"><span>画面ロール</span><select id="rollInv"><option value="0">標準</option><option value="1">反転</option></select><span></span></div>
+    <p class="note">ゲームコントローラーを接続すると自動で使えます（Aボタン：ARM、Bボタン：リセット）。画面の傾きが逆に感じたら「画面ロール」を反転してください。</p>
+
+    <h3>行き先</h3>
+    <div class="row"><span>場所</span><select id="place">
+      <option value="">選択…</option>
+      <option value="139.6949,35.6717">代々木公園</option>
+      <option value="139.7454,35.6586">東京タワー</option>
+      <option value="139.8107,35.7101">東京スカイツリー</option>
+      <option value="139.8126,35.7725">荒川河川敷</option>
+      <option value="135.5262,34.6873">大阪城公園</option>
+      <option value="138.7550,35.3950">富士山 五合目</option>
+      <option value="-112.1129,36.0600">グランドキャニオン</option>
+      <option value="-73.9680,40.7812">セントラルパーク</option>
+    </select><span></span></div>
   </div>
 </div>
-
-<div class="speed">
-  <button data-s="0.5">遅</button><button data-s="1">普</button><button data-s="2.5">速</button>
-</div>
-
-<div class="stick left" id="stickL"><div class="knob"></div><div class="label">前後・左右移動</div></div>
-<div class="stick right" id="stickR"><div class="knob"></div><div class="label">上昇下降・旋回</div></div>
+<div id="err"></div>
 
 <script>
-const map = new maplibregl.Map({
-  container: 'map',
-  interactive: false,
-  maxPitch: 85,
-  center: [139.7454, 35.6586], zoom: 16, pitch: 70, bearing: 0,
-  attributionControl: { compact: true },
-  style: {
-    version: 8,
-    sources: {
-      sat: { type:'raster', tileSize:256, maxzoom:19,
-        tiles:['https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'],
-        attribution:'Imagery © Esri' },
-      osm: { type:'raster', tileSize:256, maxzoom:19,
-        tiles:['https://tile.openstreetmap.org/{z}/{x}/{y}.png'],
-        attribution:'© OpenStreetMap contributors' },
-      dem: { type:'raster-dem', encoding:'terrarium', tileSize:256, maxzoom:15,
-        tiles:['https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png'],
-        attribution:'Terrain: Mapzen/AWS' }
-    },
-    layers: [
-      { id:'sat', type:'raster', source:'sat' },
-      { id:'osm', type:'raster', source:'osm', layout:{ visibility:'none' } }
-    ],
-    terrain: { source:'dem', exaggeration:1.3 },
-    sky: { 'sky-color':'#6fa8dc', 'horizon-color':'#dbe8f5', 'sky-horizon-blend':0.6, 'fog-color':'#dbe8f5', 'horizon-fog-blend':0.5 }
-  }
-});
+window.onerror = (m) => { document.getElementById('err').textContent = 'エラー: ' + m; };
 
-// state
-let lng = 139.7454, lat = 35.6586, zoom = 16, bearing = 0, pitch = 70, speedMul = 1;
-const input = { L:{x:0,y:0}, R:{x:0,y:0} };
-const keys = {};
+// ---------- 機体データ ----------
+const CRAFTS = {
+  race:  { name:'5インチ レーサー', desc:'最速・軽量。上向き角大', twr:11, vmax:48, uptilt:40, bat:0.0080 },
+  free:  { name:'5インチ フリースタイル', desc:'標準機。万能', twr:8, vmax:38, uptilt:30, bat:0.0065 },
+  whoop: { name:'3インチ シネフープ', desc:'低速・安定。狭所向き', twr:4.2, vmax:20, uptilt:12, bat:0.0055 },
+  lr:    { name:'7インチ ロングレンジ', desc:'高速巡航・長時間', twr:5.5, vmax:42, uptilt:20, bat:0.0035 },
+  cam:   { name:'空撮機（DJI風）', desc:'GPSで静止。ジンバル付き', gps:true, vmax:15 }
+};
+const DEF = { craft:'free', mode:'ANGLE', rcRate:1.0, superRate:0.7, expo:0.0, yRcRate:1.0, ySuperRate:0.6,
+  thrMid:0.5, thrExpo:0.0, uptilt:30, angleLimit:55, speedMode:'N', wind:2, fov:80, mapType:'sat', bld:'1', stickMode:'2', rollInv:'0' };
+let S = Object.assign({}, DEF);
+try { Object.assign(S, JSON.parse(localStorage.getItem('fpvset') || '{}')); } catch(e) {}
+const save = () => { try { localStorage.setItem('fpvset', JSON.stringify(S)); } catch(e) {} };
 
-function setupStick(el, target) {
-  const knob = el.querySelector('.knob');
-  let id = null;
-  const R = 50;
-  function update(e) {
-    const r = el.getBoundingClientRect();
-    let dx = e.clientX - (r.left + r.width/2), dy = e.clientY - (r.top + r.height/2);
-    const d = Math.hypot(dx, dy);
-    if (d > R) { dx = dx / d * R; dy = dy / d * R; }
-    knob.style.transform = `translate(${dx}px,${dy}px)`;
-    target.x = dx / R; target.y = -dy / R;
-  }
-  el.addEventListener('pointerdown', e => { id = e.pointerId; el.setPointerCapture(id); update(e); });
-  el.addEventListener('pointermove', e => { if (e.pointerId === id) update(e); });
-  const end = e => { if (e.pointerId !== id) return; id = null; knob.style.transform = ''; target.x = 0; target.y = 0; };
-  el.addEventListener('pointerup', end); el.addEventListener('pointercancel', end);
+// ---------- 地図 ----------
+let lng0 = 139.6949, lat0 = 35.6717;
+const style = {
+  version:8,
+  sources:{
+    sat:{ type:'raster', tileSize:256, maxzoom:19, tiles:['https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'], attribution:'Imagery © Esri' },
+    osm:{ type:'raster', tileSize:256, maxzoom:19, tiles:['https://tile.openstreetmap.org/{z}/{x}/{y}.png'], attribution:'© OpenStreetMap contributors' },
+    dem:{ type:'raster-dem', encoding:'terrarium', tileSize:256, maxzoom:15, tiles:['https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png'], attribution:'Terrain: Mapzen/AWS' },
+    ofm:{ type:'vector', url:'https://tiles.openfreemap.org/planet', attribution:'OpenFreeMap' },
+    gates:{ type:'geojson', data:{ type:'FeatureCollection', features:[] } }
+  },
+  layers:[
+    { id:'sat', type:'raster', source:'sat' },
+    { id:'osm', type:'raster', source:'osm', layout:{ visibility:'none' } },
+    { id:'bld', type:'fill-extrusion', source:'ofm', 'source-layer':'building', minzoom:14,
+      paint:{ 'fill-extrusion-color':'#cfc9bf', 'fill-extrusion-opacity':0.88,
+        'fill-extrusion-height':['coalesce',['get','render_height'],8], 'fill-extrusion-base':['coalesce',['get','render_min_height'],0] } },
+    { id:'gates', type:'fill-extrusion', source:'gates',
+      paint:{ 'fill-extrusion-color':['match',['get','st'],'next','#ff8a00','done','#3a4550','#22d3ff'],
+        'fill-extrusion-height':['get','top'], 'fill-extrusion-base':['get','base'], 'fill-extrusion-opacity':0.95 } }
+  ],
+  terrain:{ source:'dem', exaggeration:1 },
+  sky:{ 'sky-color':'#5b93cf', 'horizon-color':'#d7e4f0', 'fog-color':'#d7e4f0', 'sky-horizon-blend':0.5, 'horizon-fog-blend':0.6, 'fog-ground-blend':0.85, 'atmosphere-blend':0.6 }
+};
+let map;
+const mapOpts = { container:'map', style, center:[lng0, lat0], zoom:17, pitch:75, interactive:false, attributionControl:{ compact:true }, centerClampedToGround:false };
+try { map = new maplibregl.Map(Object.assign({ maxPitch:180 }, mapOpts)); }
+catch(e) { map = new maplibregl.Map(Object.assign({ maxPitch:85 }, mapOpts)); }
+const MAXP = () => (map.getMaxPitch ? map.getMaxPitch() : 85);
+
+// ---------- 数学 ----------
+const D2R = Math.PI/180, R2D = 180/Math.PI, G = 9.81;
+const qmul = (a,b) => [a[0]*b[0]-a[1]*b[1]-a[2]*b[2]-a[3]*b[3], a[0]*b[1]+a[1]*b[0]+a[2]*b[3]-a[3]*b[2], a[0]*b[2]-a[1]*b[3]+a[2]*b[0]+a[3]*b[1], a[0]*b[3]+a[1]*b[2]-a[2]*b[1]+a[3]*b[0]];
+const qconj = q => [q[0],-q[1],-q[2],-q[3]];
+const qnorm = q => { const n=Math.hypot(...q); return q.map(v=>v/n); };
+const qaxis = (ax,ang) => { const s=Math.sin(ang/2); return [Math.cos(ang/2), ax[0]*s, ax[1]*s, ax[2]*s]; };
+const qrot = (q,v) => { const r=qmul(qmul(q,[0,...v]),qconj(q)); return [r[1],r[2],r[3]]; };
+const dot = (a,b) => a[0]*b[0]+a[1]*b[1]+a[2]*b[2];
+const cross = (a,b) => [a[1]*b[2]-a[2]*b[1], a[2]*b[0]-a[0]*b[2], a[0]*b[1]-a[1]*b[0]];
+const vnorm = v => { const n=Math.hypot(...v)||1; return v.map(x=>x/n); };
+const clamp = (v,a,b) => Math.max(a, Math.min(b, v));
+const bfRate = (rc, rate, sup, expo) => { // Betaflight
+  const a = Math.abs(rc); let r = rc*a*a*a*expo + rc*(1-expo);
+  let deg = 200*rate*r; if (sup) deg *= 1/clamp(1 - Math.abs(r)*sup, 0.01, 1); return deg;
+};
+const thrCurve = t => { const m=S.thrMid, e=S.thrExpo, tmp=t-m, y = tmp>0 ? tmp/(1-m) : tmp/m; return clamp(m + tmp*(1 - e + e*y*y), 0, 1); };
+
+// ---------- 状態 ----------
+const st = { p:[0,0,0], v:[0,0,0], q:[1,0,0,0], w:[0,0,0], armed:false, crashed:false, landed:true,
+  bat:1, tFly:0, gYaw:0, gimbal:-10, msg:'', msgT:0, ground:0, groundReady:false };
+const toLL = (x,y) => [lng0 + x/(111320*Math.cos(lat0*D2R)), lat0 + y/110540];
+function groundAt(x,y) {
+  const [lo,la] = toLL(x,y); let e = null;
+  try {
+    if (map.terrain && map.terrain.getElevationForLngLatZoom) e = map.terrain.getElevationForLngLatZoom(new maplibregl.LngLat(lo,la), map.transform.tileZoom || 15);
+    else if (map.queryTerrainElevation) e = map.queryTerrainElevation([lo,la]);
+  } catch(err) {}
+  if (e == null || isNaN(e)) return st.ground;
+  st.ground = e; return e;
 }
-setupStick(document.getElementById('stickL'), input.L);
-setupStick(document.getElementById('stickR'), input.R);
+function flash(t, sec=2.5) { st.msg = t; st.msgT = sec; }
 
-addEventListener('keydown', e => keys[e.key.toLowerCase()] = true);
-addEventListener('keyup', e => keys[e.key.toLowerCase()] = false);
+function resetDrone(keepPos) {
+  if (!keepPos) st.p = [0,0,0];
+  const g = groundAt(st.p[0], st.p[1]);
+  st.p[2] = g + 0.12; st.v = [0,0,0]; st.w = [0,0,0];
+  const yaw = keepPos ? headingOf() : 0;
+  st.q = qaxis([0,0,1], yaw); st.gYaw = yaw;
+  st.armed = false; st.crashed = false; st.landed = true; st.bat = 1; st.tFly = 0;
+  sticks.forEach(s => s.reset());
+  updateArmBtn();
+}
+function headingOf() { const f = qrot(st.q,[0,1,0]); return Math.atan2(-f[0], f[1]); }
+function teleport(lo, la) { lng0 = lo; lat0 = la; st.p = [0,0,0]; clearRace(); st.groundReady = false; groundTimer = 0; }
 
-document.querySelectorAll('.speed button').forEach(b => b.onclick = () => speedMul = +b.dataset.s);
+// ---------- スティック ----------
+class Stick {
+  constructor(el) {
+    this.el = el; this.knob = el.querySelector('.knob'); this.x = 0; this.y = 0; this.cx = true; this.cy = true; this.id = null;
+    el.addEventListener('pointerdown', e => { this.id = e.pointerId; el.setPointerCapture(this.id); this.move(e); });
+    el.addEventListener('pointermove', e => { if (e.pointerId === this.id) this.move(e); });
+    const end = e => { if (e.pointerId !== this.id) return; this.id = null; if (this.cx) this.x = 0; if (this.cy) this.y = 0; this.draw(); };
+    el.addEventListener('pointerup', end); el.addEventListener('pointercancel', end);
+  }
+  move(e) { const r = this.el.getBoundingClientRect(), R = r.width/2 - 18;
+    this.x = clamp((e.clientX - r.left - r.width/2)/R, -1, 1); this.y = clamp(-(e.clientY - r.top - r.height/2)/R, -1, 1); this.draw(); }
+  draw() { const R = this.el.clientWidth/2 - 18; this.knob.style.transform = `translate(${this.x*R}px,${-this.y*R}px)`; }
+  reset() { this.x = 0; this.y = this.cy ? 0 : -1; this.draw(); }
+}
+const sL = new Stick(document.getElementById('stickL')), sR = new Stick(document.getElementById('stickR'));
+const sticks = [sL, sR];
+function configSticks() {
+  const gps = CRAFTS[S.craft].gps, m1 = S.stickMode === '1';
+  const thrStick = m1 ? sR : sL, other = m1 ? sL : sR;
+  other.cx = other.cy = true; thrStick.cx = true; thrStick.cy = !!gps;
+  if (!thrStick.cy && thrStick.id === null && thrStick.y === 0) thrStick.y = -1;
+  if (thrStick.cy && thrStick.id === null) thrStick.y = 0;
+  sticks.forEach(s => s.draw());
+  document.getElementById('lblL').textContent = m1 ? 'エレベーター / ラダー' : (gps ? '上昇下降 / 旋回' : 'スロットル / ヨー');
+  document.getElementById('lblR').textContent = m1 ? (gps ? '上昇下降 / エルロン' : 'スロットル / ロール') : (gps ? '前後 / 左右' : 'ピッチ / ロール');
+}
+function readInput() {
+  let lx=sL.x, ly=sL.y, rx=sR.x, ry=sR.y;
+  const gp = navigator.getGamepads ? [...navigator.getGamepads()].find(g => g && g.axes.length >= 4) : null;
+  if (gp) {
+    const dz = v => Math.abs(v) < 0.04 ? 0 : v;
+    lx = dz(gp.axes[0]); ly = -dz(gp.axes[1]); rx = dz(gp.axes[2]); ry = -dz(gp.axes[3]);
+    const a = gp.buttons[0]?.pressed, b = gp.buttons[1]?.pressed;
+    if (a && !readInput.pa) toggleArm(); if (b && !readInput.pb) resetDrone(true);
+    readInput.pa = a; readInput.pb = b;
+  }
+  if (S.stickMode === '1') return { thr:ry, yaw:lx, pitch:ly, roll:rx };
+  return { thr:ly, yaw:lx, pitch:ry, roll:rx };
+}
 
-document.getElementById('place').onchange = e => {
-  if (!e.target.value) return;
-  const [a, b, z] = e.target.value.split(',').map(Number);
-  lng = a; lat = b; zoom = z; e.target.value = '';
-};
+// ---------- ARM ----------
+const armBtn = document.getElementById('armBtn');
+function updateArmBtn() { armBtn.textContent = st.armed ? 'DISARM' : 'ARM'; armBtn.classList.toggle('armed', st.armed); }
+function toggleArm() {
+  if (st.armed) { st.armed = false; updateArmBtn(); return; }
+  if (st.crashed) { flash('リセットしてください'); return; }
+  if (st.bat <= 0.02) { flash('バッテリー切れ'); return; }
+  const inp = readInput();
+  if (!CRAFTS[S.craft].gps && (inp.thr+1)/2 > 0.06) { flash('スロットルを一番下に'); return; }
+  st.armed = true; updateArmBtn(); flash('ARMED', 1.2);
+}
+armBtn.onclick = toggleArm;
+document.getElementById('resetBtn').onclick = () => resetDrone(true);
 
-let sat = true;
-document.getElementById('styleBtn').onclick = e => {
-  sat = !sat;
-  map.setLayoutProperty('sat', 'visibility', sat ? 'visible' : 'none');
-  map.setLayoutProperty('osm', 'visibility', sat ? 'none' : 'visible');
-  e.target.textContent = sat ? '通常地図' : '衛星写真';
-};
+// ---------- 物理 ----------
+function crash(why) { st.crashed = true; st.armed = false; st.v = [0,0,0]; st.w = [0,0,0]; updateArmBtn(); flash(why + '｜リセットで再開', 99); }
+function windVec(t) {
+  const base = S.wind, gust = 1 + 0.35*Math.sin(t*0.7) + 0.2*Math.sin(t*2.3);
+  const dir = 0.8 + 0.3*Math.sin(t*0.13);
+  return [Math.sin(dir)*base*gust, Math.cos(dir)*base*gust, 0.25*base*Math.sin(t*1.7)];
+}
 
-let topView = false;
-document.getElementById('tiltBtn').onclick = e => {
-  topView = !topView; pitch = topView ? 0 : 70;
-  e.target.textContent = topView ? 'ドローン視点' : '真上視点';
-};
+function stepFPV(dt, inp, t) {
+  const c = CRAFTS[S.craft];
+  const thrRaw = (inp.thr+1)/2, thr = thrCurve(thrRaw);
+  // 目標角速度（機体座標：x右 y前 z上）
+  let wc;
+  if (S.mode === 'ACRO') {
+    wc = [ -bfRate(inp.pitch, S.rcRate, S.superRate, S.expo)*D2R,
+            bfRate(inp.roll,  S.rcRate, S.superRate, S.expo)*D2R,
+           -bfRate(inp.yaw,   S.yRcRate, S.ySuperRate, 0)*D2R ];
+  } else { // ANGLE：自動水平
+    const lim = S.angleLimit*D2R, psi = headingOf();
+    const qt = qmul(qaxis([0,0,1], psi), qmul(qaxis([1,0,0], -inp.pitch*lim), qaxis([0,1,0], inp.roll*lim)));
+    let qe = qmul(qconj(st.q), qt); if (qe[0] < 0) qe = qe.map(v=>-v);
+    const ang = 2*Math.acos(clamp(qe[0],-1,1)), s = Math.sin(ang/2) || 1;
+    const k = 9; wc = [qe[1]/s*ang*k, qe[2]/s*ang*k, qe[3]/s*ang*k];
+    wc[2] += -bfRate(inp.yaw, S.yRcRate, S.ySuperRate, 0)*D2R;
+    wc = wc.map(v => clamp(v, -12, 12));
+  }
+  if (!st.armed) wc = [0,0,0];
+  const kr = 1 - Math.exp(-dt/0.025);
+  for (let i=0;i<3;i++) st.w[i] += (wc[i]-st.w[i])*kr;
+  const wl = Math.hypot(...st.w);
+  if (wl > 1e-6 && !st.landed) st.q = qnorm(qmul(st.q, qaxis(st.w.map(v=>v/wl), wl*dt)));
+  // 推力
+  const up = qrot(st.q,[0,0,1]);
+  const thrEff = st.armed ? 0.04 + 0.96*thr : 0;
+  const sag = 0.82 + 0.18*st.bat;
+  const ta = thrEff * c.twr * G * sag;
+  const w = windVec(t), rel = st.v.map((v,i)=>v - w[i]), rs = Math.hypot(...rel);
+  const c2 = c.twr*G*0.9/(c.vmax*c.vmax);
+  const a = [0,0,0];
+  for (let i=0;i<3;i++) a[i] = up[i]*ta - (0.12 + c2*rs)*rel[i];
+  a[2] -= G;
+  for (let i=0;i<3;i++) st.v[i] += a[i]*dt;
+  for (let i=0;i<3;i++) st.p[i] += st.v[i]*dt;
+  if (st.armed) { st.bat = Math.max(0, st.bat - (0.0022 + c.bat*Math.pow(thrEff,1.5)*c.twr/6)*dt); st.tFly += dt; if (st.bat <= 0) { st.armed=false; updateArmBtn(); flash('バッテリー切れ',4);} }
+  // 地面
+  const g = groundAt(st.p[0], st.p[1]);
+  if (st.p[2] < g + 0.12) {
+    const spd = Math.hypot(...st.v), upz = up[2];
+    if (!st.landed && (spd > 5.5 || upz < 0.55)) { st.p[2] = g + 0.12; crash('クラッシュ'); return; }
+    st.p[2] = g + 0.12; st.v[2] = Math.max(0, st.v[2]); st.v[0] *= 0.7; st.v[1] *= 0.7;
+    if (ta < G*1.02) { st.landed = true; st.q = qaxis([0,0,1], headingOf()); st.w = [0,0,0]; }
+  } else if (st.p[2] > g + 0.35) st.landed = false;
+  if (st.landed && ta > G*1.05) { st.landed = false; st.p[2] += 0.02; }
+}
 
-const hdg = document.getElementById('hdg'), altEl = document.getElementById('alt'), pos = document.getElementById('pos');
-let last = performance.now();
+function stepCam(dt, inp, t) {
+  const gpsMode = S.mode !== 'ATTI';
+  const vmax = { C:5, N:12, S:21 }[S.speedMode], vz = { C:2, N:4, S:6 }[S.speedMode];
+  if (st.armed) st.gYaw += -inp.yaw * ({C:40,N:80,S:120}[S.speedMode]) * D2R * dt;
+  const f = [-Math.sin(st.gYaw), Math.cos(st.gYaw)], r = [Math.cos(st.gYaw), Math.sin(st.gYaw)];
+  const cmd = st.armed ? [ (f[0]*inp.pitch + r[0]*inp.roll)*vmax, (f[1]*inp.pitch + r[1]*inp.roll)*vmax, inp.thr*vz ] : [0,0,-3];
+  const w = windVec(t);
+  if (gpsMode) {
+    const k = 1 - Math.exp(-dt*2.2);
+    for (let i=0;i<3;i++) st.v[i] += (cmd[i] - st.v[i])*k;
+  } else { // ATTI：位置保持なし、風に流される
+    const acc = 7;
+    st.v[0] += (cmd[0]/vmax*acc + (w[0]-st.v[0])*0.35)*dt;
+    st.v[1] += (cmd[1]/vmax*acc + (w[1]-st.v[1])*0.35)*dt;
+    st.v[2] += (cmd[2]-st.v[2])*(1-Math.exp(-dt*2.2));
+  }
+  for (let i=0;i<3;i++) st.p[i] += st.v[i]*dt;
+  if (st.armed) { st.bat = Math.max(0, st.bat - dt/1500); st.tFly += dt; }
+  const g = groundAt(st.p[0], st.p[1]);
+  if (st.p[2] < g + 0.12) {
+    if (Math.hypot(st.v[0],st.v[1]) > 8 && st.p[2] < g - 0.5) { crash('地面に衝突'); return; }
+    st.p[2] = g + 0.12; st.v = [0,0,Math.max(0,st.v[2])]; st.landed = true;
+  } else st.landed = false;
+  // 表示用の機体姿勢（加速に応じて傾く）
+  st.q = qaxis([0,0,1], st.gYaw);
+}
 
+// ---------- レース ----------
+let gates = [], nextGate = 0, lapStart = null, lap = 0, best = null, lastLap = null;
+const raceEl = document.getElementById('race');
+function buildRace() {
+  const psi = headingOf(), f = [-Math.sin(psi), Math.cos(psi)], r = [Math.cos(psi), Math.sin(psi)];
+  const cx = st.p[0] + f[0]*110, cy = st.p[1] + f[1]*110, A = 100, B = 55, N = 10;
+  gates = [];
+  for (let i=0;i<N;i++) {
+    const th = Math.PI + i/N*2*Math.PI; // 手前から反時計回り
+    const lx = Math.sin(th)*B, ly = Math.cos(th)*A;
+    const dx = Math.cos(th)*B, dy = -Math.sin(th)*A; // 接線
+    const c = [cx + r[0]*lx + f[0]*ly, cy + r[1]*lx + f[1]*ly];
+    const d = vnorm([r[0]*dx + f[0]*dy, r[1]*dx + f[1]*dy, 0]);
+    const high = i % 3 === 2;
+    gates.push({ c, d, lo: high ? 6 : 0, hi: high ? 10 : 4, w: 6 });
+  }
+  // 1つ目のゲートが自機の前に来るように並べ替え
+  let bi = 0, bd = 1e9; gates.forEach((g,i) => { const dd = Math.hypot(g.c[0]-st.p[0], g.c[1]-st.p[1]); if (dd < bd) { bd = dd; bi = i; } });
+  gates = gates.slice(bi).concat(gates.slice(0,bi));
+  nextGate = 0; lapStart = null; lap = 0; lastLap = null;
+  drawGates(); raceEl.hidden = false; flash('オレンジのゲートをくぐれ', 3);
+}
+function clearRace() { gates = []; drawGates(); raceEl.hidden = true; }
+function drawGates() {
+  const feats = [];
+  const poly = (pts, base, top, stt) => feats.push({ type:'Feature', properties:{ base, top, st:stt }, geometry:{ type:'Polygon', coordinates:[[...pts.map(p=>toLL(p[0],p[1])), toLL(pts[0][0],pts[0][1])]] } });
+  gates.forEach((g,i) => {
+    const s = i === nextGate ? 'next' : 'norm';
+    const l = [g.d[1], -g.d[0]], h = g.w/2, t = 0.35, dd = 0.35;
+    const rect = (ox, oy, ax, ay) => [[ox-l[0]*ax-g.d[0]*ay, oy-l[1]*ax-g.d[1]*ay],[ox+l[0]*ax-g.d[0]*ay, oy+l[1]*ax-g.d[1]*ay],[ox+l[0]*ax+g.d[0]*ay, oy+l[1]*ax+g.d[1]*ay],[ox-l[0]*ax+g.d[0]*ay, oy-l[1]*ax+g.d[1]*ay]];
+    for (const sd of [-1,1]) poly(rect(g.c[0]+l[0]*h*sd, g.c[1]+l[1]*h*sd, t, dd), 0, g.hi, s);
+    poly(rect(g.c[0], g.c[1], h+t, dd), g.hi-0.4, g.hi, s);
+    if (g.lo > 0) poly(rect(g.c[0], g.c[1], h+t, dd), g.lo-0.4, g.lo, s);
+  });
+  const src = map.getSource && map.getSource('gates'); if (src) src.setData({ type:'FeatureCollection', features:feats });
+}
+let prevP = null;
+function checkGate(t) {
+  if (!gates.length || !prevP) return;
+  const g = gates[nextGate];
+  const s0 = (prevP[0]-g.c[0])*g.d[0] + (prevP[1]-g.c[1])*g.d[1];
+  const s1 = (st.p[0]-g.c[0])*g.d[0] + (st.p[1]-g.c[1])*g.d[1];
+  if (s0 < 0 && s1 >= 0) {
+    const k = s0/(s0-s1), x = prevP[0]+(st.p[0]-prevP[0])*k, y = prevP[1]+(st.p[1]-prevP[1])*k, z = prevP[2]+(st.p[2]-prevP[2])*k;
+    const lat = Math.abs((x-g.c[0])*g.d[1] - (y-g.c[1])*g.d[0]);
+    const agl = z - groundAt(x,y);
+    if (lat < g.w/2 && agl > g.lo && agl < g.hi - 0.4) {
+      if (nextGate === 0) {
+        if (lapStart !== null) { lastLap = t - lapStart; if (best === null || lastLap < best) best = lastLap; flash('LAP ' + fmt(lastLap), 2.5); }
+        lapStart = t; lap++;
+      }
+      nextGate = (nextGate + 1) % gates.length; drawGates();
+    }
+  }
+}
+const fmt = s => { const m = Math.floor(s/60); return (m ? m + ':' : '') + (s%60).toFixed(2).padStart(m?5:4,'0'); };
+document.getElementById('raceBtn').onclick = () => gates.length ? clearRace() : buildRace();
+
+// ---------- カメラ ----------
+function applyCamera() {
+  let f, u;
+  if (CRAFTS[S.craft].gps) {
+    const gy = st.gYaw, gp = st.gimbal*D2R;
+    f = [-Math.sin(gy)*Math.cos(gp), Math.cos(gy)*Math.cos(gp), Math.sin(gp)];
+    u = vnorm(cross(cross(f,[0,0,1]), f)); if (u[2] < 0) u = u.map(v=>-v);
+  } else {
+    const ut = S.uptilt*D2R;
+    f = qrot(st.q, [0, Math.cos(ut), Math.sin(ut)]);
+    u = qrot(st.q, [0, -Math.sin(ut), Math.cos(ut)]);
+  }
+  const maxP = MAXP();
+  let bearing, pitch, roll = 0;
+  if (Math.abs(f[2]) > 0.985) { // ほぼ真下／真上
+    const hv = f[2] < 0 ? u : u.map(v=>-v);
+    bearing = Math.atan2(hv[0], hv[1])*R2D; pitch = f[2] < 0 ? 0 : 180;
+  } else {
+    bearing = Math.atan2(f[0], f[1])*R2D;
+    pitch = 90 + Math.asin(clamp(f[2],-1,1))*R2D;
+    const u0 = vnorm([ -f[2]*f[0], -f[2]*f[1], 1 - f[2]*f[2] ]);
+    roll = Math.atan2(dot(cross(u0,u), f), dot(u0,u))*R2D;
+    if (S.rollInv === '1') roll = -roll;
+  }
+  pitch = clamp(pitch, 0, maxP);
+  const [lo, la] = toLL(st.p[0], st.p[1]);
+  const alt = st.p[2] + 0.1;
+  try {
+    if (map.calculateCameraOptionsFromCameraLngLatAltRotation) {
+      const o = map.calculateCameraOptionsFromCameraLngLatAltRotation([lo,la], alt, bearing, pitch, roll);
+      map.jumpTo(o);
+    } else {
+      const p = Math.min(pitch, 85), agl = Math.max(1, alt - st.ground);
+      const d = agl*Math.tan(p*D2R), b = bearing*D2R;
+      const cx = st.p[0] + Math.sin(b)*d, cy = st.p[1] + Math.cos(b)*d;
+      const D = agl/Math.cos(p*D2R), mpp = D/(1.5*innerHeight);
+      map.jumpTo({ center:toLL(cx,cy), zoom:Math.log2(40075016.686*Math.cos(la*D2R)/(512*mpp)), bearing, pitch:p });
+    }
+  } catch(e) {}
+}
+
+// ---------- OSD ----------
+const tl = document.getElementById('osdTL'), tr = document.getElementById('osdTR'), msgEl = document.getElementById('msg');
+function osd(t) {
+  const c = CRAFTS[S.craft], inp = readInput();
+  const spd = Math.hypot(st.v[0], st.v[1], st.v[2])*3.6;
+  const agl = st.p[2] - st.ground;
+  const dist = Math.hypot(st.p[0], st.p[1]);
+  const volt = c.gps ? null : (4*(3.45 + 0.75*st.bat)).toFixed(1);
+  const bcls = st.bat < 0.2 ? 'warn' : '';
+  const thr = c.gps ? null : Math.round(thrCurve((inp.thr+1)/2)*100);
+  tl.innerHTML = c.gps
+    ? `<span class="${bcls}">BAT ${Math.round(st.bat*100)}%</span><br>${S.mode} ${S.speedMode}<br>H ${agl.toFixed(1)}m<br>D ${dist.toFixed(0)}m`
+    : `<span class="${bcls}">${volt}V</span><br>THR ${thr}%<br>${S.mode}<br>${c.name.split(' ')[0]}`;
+  tr.innerHTML = `${spd.toFixed(0)} km/h<br>ALT ${agl.toFixed(1)}m<br>${c.gps ? 'VS ' + st.v[2].toFixed(1) : 'HOME ' + dist.toFixed(0) + 'm'}<br>${fmt(st.tFly)}`;
+  let m = '';
+  if (st.msgT > 0) m = st.msg;
+  else if (st.crashed) m = '<span class="warn">クラッシュ｜リセットで再開</span>';
+  else if (!st.armed) m = '<span class="acc">DISARMED</span><br><span style="font-size:12px">ARMを押して' + (c.gps ? '左スティックを上へ' : 'スロットルを上げる') + '</span>';
+  else if (st.bat < 0.2) m = '<span class="warn">LOW BATTERY</span>';
+  msgEl.innerHTML = m;
+  if (gates.length) raceEl.innerHTML = `GATE ${nextGate+1}/${gates.length}　LAP ${lap}<br>${lapStart!==null ? fmt(t-lapStart) : '--'}${best!==null ? '　BEST ' + fmt(best) : ''}`;
+}
+
+// ---------- ループ ----------
+let last = performance.now(), T = 0, groundTimer = 0;
 function loop(now) {
-  const dt = Math.min((now - last) / 1000, 0.05); last = now;
-
-  // keyboard (PC): WASD移動 / 矢印で旋回・上下
-  let fx = input.L.x, fy = input.L.y, rx = input.R.x, ry = input.R.y;
-  if (keys['w']) fy = 1; if (keys['s']) fy = -1; if (keys['a']) fx = -1; if (keys['d']) fx = 1;
-  if (keys['arrowleft']) rx = -1; if (keys['arrowright']) rx = 1; if (keys['arrowup']) ry = 1; if (keys['arrowdown']) ry = -1;
-
-  // speed scales with altitude (m/s)
-  const mps = 60 * Math.pow(2, 16 - zoom) * speedMul;
-  const b = bearing * Math.PI / 180;
-  const east = (Math.sin(b) * fy + Math.cos(b) * fx) * mps * dt;
-  const north = (Math.cos(b) * fy - Math.sin(b) * fx) * mps * dt;
-  lat += north / 111320;
-  lng += east / (111320 * Math.cos(lat * Math.PI / 180));
-  lat = Math.max(-84, Math.min(84, lat));
-  if (lng > 180) lng -= 360; if (lng < -180) lng += 360;
-
-  bearing = (bearing + rx * 70 * dt + 360) % 360;
-  zoom = Math.max(3, Math.min(19, zoom - ry * 0.9 * dt));
-
-  map.jumpTo({ center:[lng, lat], zoom, bearing, pitch });
-
-  hdg.textContent = Math.round(bearing) + '°';
-  const altM = 78271.5 * Math.cos(lat * Math.PI / 180) / Math.pow(2, zoom) * innerHeight / 2 / Math.tan(0.6435) ;
-  altEl.textContent = altM > 1000 ? (altM / 1000).toFixed(1) + ' km' : Math.round(altM) + ' m';
-  pos.textContent = lat.toFixed(4) + ', ' + lng.toFixed(4);
-
+  const dt = Math.min((now-last)/1000, 1/20); last = now; T += dt;
+  if (!st.groundReady) {
+    groundTimer += dt; applyCamera0();
+    if (groundTimer > 1.5) { st.groundReady = true; resetDrone(true); }
+  } else {
+    const inp = readInput(), sub = 4;
+    prevP = st.p.slice();
+    if (!st.crashed) for (let i=0;i<sub;i++) (CRAFTS[S.craft].gps ? stepCam : stepFPV)(dt/sub, inp, T);
+    checkGate(T);
+    // 原点の付け替え（遠くへ飛んだ時の精度確保）
+    if (Math.hypot(st.p[0], st.p[1]) > 15000) { const [lo,la] = toLL(st.p[0],st.p[1]); lng0 = lo; lat0 = la; st.p[0] = 0; st.p[1] = 0; clearRace(); }
+    applyCamera();
+  }
+  if (st.msgT > 0 && st.msgT < 90) st.msgT -= dt;
+  osd(T);
   requestAnimationFrame(loop);
 }
-map.on('load', () => requestAnimationFrame(loop));
+function applyCamera0() { map.jumpTo({ center:[lng0,lat0], zoom:17.5, pitch:60, bearing:0 }); }
+
+// ---------- 設定UI ----------
+const $ = id => document.getElementById(id);
+const sheet = $('sheet');
+$('setBtn').onclick = () => { sheet.hidden = false; };
+$('closeSet').onclick = () => { sheet.hidden = true; };
+sheet.addEventListener('pointerdown', e => { if (e.target === sheet) sheet.hidden = true; });
+
+function renderCrafts() {
+  $('crafts').innerHTML = Object.entries(CRAFTS).map(([k,c]) =>
+    `<button class="craft ${k===S.craft?'sel':''}" data-k="${k}">${c.name}<small>${c.desc}${c.twr ? '｜推力比 ' + c.twr : ''}</small></button>`).join('');
+  $('crafts').querySelectorAll('.craft').forEach(b => b.onclick = () => {
+    S.craft = b.dataset.k; const c = CRAFTS[S.craft];
+    if (c.gps) S.mode = (S.mode === 'ATTI') ? 'ATTI' : 'GPS'; else { if (S.mode === 'GPS' || S.mode === 'ATTI') S.mode = 'ANGLE'; S.uptilt = c.uptilt; }
+    save(); syncUI(); resetDrone(true);
+  });
+}
+const rangeIds = { rcRate:2, superRate:2, expo:2, yRcRate:2, ySuperRate:2, thrMid:2, thrExpo:2, uptilt:0, angleLimit:0, wind:1, fov:0 };
+const units = { uptilt:'°', angleLimit:'°', wind:'m/s', fov:'°' };
+function syncUI() {
+  const c = CRAFTS[S.craft];
+  renderCrafts();
+  $('mode').innerHTML = c.gps ? '<option value="GPS">GPS（位置保持）</option><option value="ATTI">ATTI（GPSなし・国家試験の実技）</option>'
+                              : '<option value="ANGLE">ANGLE（自動水平）</option><option value="ACRO">ACRO（アクロ・手動）</option>';
+  $('mode').value = S.mode;
+  $('modeNote').textContent = {
+    ANGLE:'スティックを離すと機体が水平に戻ります。最初はこちら。',
+    ACRO:'スティックは「回転の速さ」を指示します。離しても傾いたまま。本物のFPV操縦士の標準モードです。',
+    GPS:'スティックを離すとその場で静止します。一般的な空撮ドローンの操作。',
+    ATTI:'位置保持なし。スティックを離しても風で流されるので、当て舵で止めます。'
+  }[S.mode];
+  $('fpvSet').hidden = !!c.gps; $('camSet').hidden = !c.gps; $('gimbal').hidden = !c.gps;
+  for (const [k,d] of Object.entries(rangeIds)) { $(k).value = S[k]; $(k+'V').textContent = (+S[k]).toFixed(d) + (units[k]||''); }
+  ['speedMode','mapType','bld','stickMode','rollInv'].forEach(k => $(k).value = S[k]);
+  const mr = bfRate(1, S.rcRate, S.superRate, S.expo), my = bfRate(1, S.yRcRate, S.ySuperRate, 0);
+  $('maxRate').textContent = `最大回転速度：ロール・ピッチ ${Math.round(mr)}°/s、ヨー ${Math.round(my)}°/s`;
+  configSticks(); applyMapSet();
+}
+for (const k of Object.keys(rangeIds)) $(k).oninput = e => { S[k] = +e.target.value; save(); syncUI(); };
+$('mode').onchange = e => { S.mode = e.target.value; save(); syncUI(); };
+['speedMode','mapType','bld','stickMode','rollInv'].forEach(k => $(k).onchange = e => { S[k] = e.target.value; save(); syncUI(); });
+$('place').onchange = e => { if (!e.target.value) return; const [a,b] = e.target.value.split(',').map(Number); e.target.value=''; teleport(a,b); sheet.hidden = true; };
+$('gUp').onclick = () => { st.gimbal = clamp(st.gimbal + 10, -90, 20); };
+$('gDn').onclick = () => { st.gimbal = clamp(st.gimbal - 10, -90, 20); };
+function applyMapSet() {
+  if (!map.isStyleLoaded || !map.getLayer || !map.getLayer('sat')) return;
+  map.setLayoutProperty('sat','visibility', S.mapType==='sat'?'visible':'none');
+  map.setLayoutProperty('osm','visibility', S.mapType==='osm'?'visible':'none');
+  map.setLayoutProperty('bld','visibility', S.bld==='1'?'visible':'none');
+  try { if (map.setVerticalFieldOfView) map.setVerticalFieldOfView(S.fov); else if (map.transform && 'fov' in map.transform) map.transform.fov = S.fov; } catch(e) {}
+}
+
+map.on('load', () => { syncUI(); requestAnimationFrame(loop); });
+syncUI();
 </script>
 </body>
 </html>
