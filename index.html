@@ -169,7 +169,7 @@
 window.onerror = m => { document.getElementById('err').textContent = 'エラー: ' + m; };
 // ブラウザのスワイプ・スクロール・拡大を止める
 ['touchstart','touchmove'].forEach(ev => document.addEventListener(ev, e => {
-  if (e.target.closest && e.target.closest('#sheet .inner, #photo .box')) return;
+  if (e.target.closest && e.target.closest('button, select, input, a, label, #sheet, #photo')) return;
   e.preventDefault();
 }, { passive:false }));
 document.addEventListener('gesturestart', e => e.preventDefault());
