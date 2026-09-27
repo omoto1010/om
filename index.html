@@ -9,6 +9,7 @@
 <script src="https://unpkg.com/maplibre-gl@5/dist/maplibre-gl.js"></script>
 <style>
   :root { --osd:#f4f7fa; --accent:#ffb020; --warn:#ff4d4d; --ok:#5dff9a; --panel:rgba(8,12,18,.86); --line:rgba(255,255,255,.14); }
+  [hidden] { display:none !important; }
   html, body { margin:0; height:100%; overflow:hidden; background:#05080c; color:var(--osd); font-family: system-ui, -apple-system, sans-serif; -webkit-user-select:none; user-select:none; touch-action:none; -webkit-touch-callout:none; }
   #map { position:absolute; inset:0; }
   .maplibregl-ctrl-attrib { font-size:9px; opacity:.6; }
@@ -115,6 +116,7 @@
     <div class="row"><span>風速</span><input type="range" id="wind" min="0" max="12" step="0.5"><span class="v" id="windV"></span></div>
     <div class="row"><span>画角</span><input type="range" id="fov" min="40" max="110" step="1"><span class="v" id="fovV"></span></div>
     <div class="row"><span>地図</span><select id="mapType"><option value="sat">衛星写真</option><option value="osm">通常地図</option></select><span></span></div>
+    <div class="row"><span>地形</span><select id="terr"><option value="auto">自動（国内は高精度）</option><option value="world">世界データ</option><option value="off">平面</option></select><span></span></div>
     <div class="row"><span>3D建物</span><select id="bld"><option value="1">表示</option><option value="0">非表示</option></select><span></span></div>
 
     <h3>送信機</h3>
@@ -150,7 +152,7 @@ const CRAFTS = {
   cam:   { name:'空撮機（DJI風）', desc:'GPSで静止。ジンバル付き', gps:true, vmax:15 }
 };
 const DEF = { craft:'free', mode:'ANGLE', rcRate:1.0, superRate:0.7, expo:0.0, yRcRate:1.0, ySuperRate:0.6,
-  thrMid:0.5, thrExpo:0.0, uptilt:30, angleLimit:55, speedMode:'N', wind:2, fov:80, mapType:'sat', bld:'1', stickMode:'2', rollInv:'0' };
+  thrMid:0.5, thrExpo:0.0, uptilt:30, angleLimit:55, speedMode:'N', wind:2, fov:80, mapType:'sat', bld:'1', terr:'auto', stickMode:'2', rollInv:'0' };
 let S = Object.assign({}, DEF);
 try { Object.assign(S, JSON.parse(localStorage.getItem('fpvset') || '{}')); } catch(e) {}
 const save = () => { try { localStorage.setItem('fpvset', JSON.stringify(S)); } catch(e) {} };
@@ -163,6 +165,7 @@ const style = {
     sat:{ type:'raster', tileSize:256, maxzoom:19, tiles:['https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'], attribution:'Imagery © Esri' },
     osm:{ type:'raster', tileSize:256, maxzoom:19, tiles:['https://tile.openstreetmap.org/{z}/{x}/{y}.png'], attribution:'© OpenStreetMap contributors' },
     dem:{ type:'raster-dem', encoding:'terrarium', tileSize:256, maxzoom:15, tiles:['https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png'], attribution:'Terrain: Mapzen/AWS' },
+    demjp:{ type:'raster-dem', encoding:'mapbox', tileSize:256, maxzoom:14, tiles:['https://gbank.gsj.jp/seamless/elev/terrainRGB/land/{z}/{y}/{x}.png'], attribution:'標高: 産総研シームレス標高タイル' },
     ofm:{ type:'vector', url:'https://tiles.openfreemap.org/planet', attribution:'OpenFreeMap' },
     gates:{ type:'geojson', data:{ type:'FeatureCollection', features:[] } }
   },
@@ -176,7 +179,7 @@ const style = {
       paint:{ 'fill-extrusion-color':['match',['get','st'],'next','#ff8a00','done','#3a4550','#22d3ff'],
         'fill-extrusion-height':['get','top'], 'fill-extrusion-base':['get','base'], 'fill-extrusion-opacity':0.95 } }
   ],
-  terrain:{ source:'dem', exaggeration:1 },
+  terrain:{ source:'demjp', exaggeration:1 },
   sky:{ 'sky-color':'#5b93cf', 'horizon-color':'#d7e4f0', 'fog-color':'#d7e4f0', 'sky-horizon-blend':0.5, 'horizon-fog-blend':0.6, 'fog-ground-blend':0.85, 'atmosphere-blend':0.6 }
 };
 let map;
@@ -212,6 +215,7 @@ function groundAt(x,y) {
     if (map.terrain && map.terrain.getElevationForLngLatZoom) e = map.terrain.getElevationForLngLatZoom(new maplibregl.LngLat(lo,la), map.transform.tileZoom || 15);
     else if (map.queryTerrainElevation) e = map.queryTerrainElevation([lo,la]);
   } catch(err) {}
+  if (curTerr === 'off') e = 0;
   if (e == null || isNaN(e)) return st.ground;
   st.ground = e; return e;
 }
@@ -228,7 +232,7 @@ function resetDrone(keepPos) {
   updateArmBtn();
 }
 function headingOf() { const f = qrot(st.q,[0,1,0]); return Math.atan2(-f[0], f[1]); }
-function teleport(lo, la) { lng0 = lo; lat0 = la; st.p = [0,0,0]; clearRace(); st.groundReady = false; groundTimer = 0; }
+function teleport(lo, la) { lng0 = lo; lat0 = la; st.p = [0,0,0]; clearRace(); applyTerrain(); st.groundReady = false; groundTimer = 0; }
 
 // ---------- スティック ----------
 class Stick {
@@ -542,14 +546,14 @@ function syncUI() {
   }[S.mode];
   $('fpvSet').hidden = !!c.gps; $('camSet').hidden = !c.gps; $('gimbal').hidden = !c.gps;
   for (const [k,d] of Object.entries(rangeIds)) { $(k).value = S[k]; $(k+'V').textContent = (+S[k]).toFixed(d) + (units[k]||''); }
-  ['speedMode','mapType','bld','stickMode','rollInv'].forEach(k => $(k).value = S[k]);
+  ['speedMode','mapType','bld','stickMode','rollInv','terr'].forEach(k => $(k).value = S[k]);
   const mr = bfRate(1, S.rcRate, S.superRate, S.expo), my = bfRate(1, S.yRcRate, S.ySuperRate, 0);
   $('maxRate').textContent = `最大回転速度：ロール・ピッチ ${Math.round(mr)}°/s、ヨー ${Math.round(my)}°/s`;
   configSticks(); applyMapSet();
 }
 for (const k of Object.keys(rangeIds)) $(k).oninput = e => { S[k] = +e.target.value; save(); syncUI(); };
 $('mode').onchange = e => { S.mode = e.target.value; save(); syncUI(); };
-['speedMode','mapType','bld','stickMode','rollInv'].forEach(k => $(k).onchange = e => { S[k] = e.target.value; save(); syncUI(); });
+['speedMode','mapType','bld','stickMode','rollInv','terr'].forEach(k => $(k).onchange = e => { S[k] = e.target.value; save(); syncUI(); });
 $('place').onchange = e => { if (!e.target.value) return; const [a,b] = e.target.value.split(',').map(Number); e.target.value=''; teleport(a,b); sheet.hidden = true; };
 $('gUp').onclick = () => { st.gimbal = clamp(st.gimbal + 10, -90, 20); };
 $('gDn').onclick = () => { st.gimbal = clamp(st.gimbal - 10, -90, 20); };
@@ -558,9 +562,20 @@ function applyMapSet() {
   map.setLayoutProperty('sat','visibility', S.mapType==='sat'?'visible':'none');
   map.setLayoutProperty('osm','visibility', S.mapType==='osm'?'visible':'none');
   map.setLayoutProperty('bld','visibility', S.bld==='1'?'visible':'none');
+  applyTerrain();
   try { if (map.setVerticalFieldOfView) map.setVerticalFieldOfView(S.fov); else if (map.transform && 'fov' in map.transform) map.transform.fov = S.fov; } catch(e) {}
 }
 
+let curTerr = 'demjp';
+function applyTerrain() {
+  if (!map.getSource || !map.getSource('dem')) return;
+  const jp = lng0 > 122 && lng0 < 154 && lat0 > 20 && lat0 < 46;
+  const want = S.terr === 'off' ? 'off' : (S.terr === 'world' || !jp) ? 'dem' : 'demjp';
+  if (want === curTerr) return;
+  curTerr = want;
+  try { map.setTerrain(want === 'off' ? null : { source:want, exaggeration:1 }); } catch(e) {}
+  st.ground = 0; st.groundReady = false; groundTimer = 0;
+}
 map.on('load', () => { syncUI(); requestAnimationFrame(loop); });
 syncUI();
 </script>
